@@ -1,4 +1,5 @@
 import logging
+import uuid
 from contextlib import contextmanager
 
 import lancedb
@@ -22,14 +23,19 @@ class LanceDB(VectorDB):
         dim: int,
         db_config: LanceDBConfig,
         db_case_config: LanceDBIndexConfig,
-        collection_name: str = "vector_bench_test",
+        collection_name: str | None = None,
         drop_old: bool = False,
         **kwargs,
     ):
         self.name = "LanceDB"
         self.db_config = db_config
         self.case_config = db_case_config
-        self.table_name = collection_name
+        # Use provided table name, or generate default with random suffix
+        if collection_name:
+            self.table_name = collection_name
+        else:
+            suffix = uuid.uuid4().hex[:8]
+            self.table_name = f"lancedb_bench_test_{suffix}"
         self.dim = dim
         self.uri = db_config["uri"]
         self.api_key = db_config.get("api_key")
@@ -37,6 +43,7 @@ class LanceDB(VectorDB):
         # avoid the search_param being called every time during the search process
         self.search_config = db_case_config.search_param()
 
+        log.info(f"Table name: {self.table_name}")
         log.info(f"Search config: {self.search_config}")
 
         connect_args = {"uri": self.uri}
@@ -115,6 +122,10 @@ class LanceDB(VectorDB):
         return [int(result["id"]) for result in results]
 
     def optimize(self, data_size: int | None = None):
+        if self.table:
+            # Create BTREE index on id column for filter performance
+            log.info(f"Creating BTREE index on id column for table ({self.table_name})")
+            self.table.create_index("id", index_type="BTREE")
         if self.table and hasattr(self, "case_config") and self.case_config.index != IndexType.NONE:
             log.info(f"Creating index for LanceDB table ({self.table_name})")
             log.info(f"Index parameters: {self.case_config.index_param()}")

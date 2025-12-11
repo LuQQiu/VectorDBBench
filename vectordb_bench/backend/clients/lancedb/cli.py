@@ -14,6 +14,16 @@ from ..api import IndexType
 
 
 class LanceDBTypedDict(CommonTypedDict):
+    drop_old: Annotated[
+        bool,
+        click.option(
+            "--drop-old/--skip-drop-old",
+            type=bool,
+            default=False,
+            help="Drop old table or skip",
+            show_default=True,
+        ),
+    ]
     uri: Annotated[
         str,
         click.option("--uri", type=str, help="URI connection string", required=True),
@@ -25,6 +35,15 @@ class LanceDBTypedDict(CommonTypedDict):
     host_override: Annotated[
         str | None,
         click.option("--host-override", type=str, help="Host override for LanceDB connection", required=False),
+    ]
+    table_name: Annotated[
+        str | None,
+        click.option(
+            "--table-name",
+            type=str,
+            default=None,
+            help="Table name (if not provided, uses lancedb_bench_test with random suffix)",
+        ),
     ]
 
 
@@ -40,6 +59,7 @@ def LanceDB(**parameters: Unpack[LanceDBTypedDict]):
             uri=parameters["uri"],
             api_key=SecretStr(parameters["api_key"]) if parameters.get("api_key") else None,
             host_override=parameters.get("host_override"),
+            table_name=parameters.get("table_name"),
         ),
         db_case_config=_lancedb_case_config.get("NONE")(),
         **parameters,
@@ -58,6 +78,7 @@ def LanceDBAutoIndex(**parameters: Unpack[LanceDBTypedDict]):
             uri=parameters["uri"],
             api_key=SecretStr(parameters["api_key"]) if parameters.get("api_key") else None,
             host_override=parameters.get("host_override"),
+            table_name=parameters.get("table_name"),
         ),
         db_case_config=_lancedb_case_config.get(IndexType.AUTOINDEX)(),
         **parameters,
@@ -112,6 +133,7 @@ def LanceDBIVFPQ(**parameters: Unpack[LanceDBIVFPQTypedDict]):
             uri=parameters["uri"],
             api_key=SecretStr(parameters["api_key"]) if parameters.get("api_key") else None,
             host_override=parameters.get("host_override"),
+            table_name=parameters.get("table_name"),
         ),
         db_case_config=LanceDBIndexConfig(
             index=IndexType.IVFPQ,
@@ -144,6 +166,7 @@ def LanceDBHNSW(**parameters: Unpack[LanceDBHNSWTypedDict]):
             uri=parameters["uri"],
             api_key=SecretStr(parameters["api_key"]) if parameters.get("api_key") else None,
             host_override=parameters.get("host_override"),
+            table_name=parameters.get("table_name"),
         ),
         db_case_config=LanceDBHNSWIndexConfig(
             m=parameters["m"],

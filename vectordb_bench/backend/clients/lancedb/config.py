@@ -10,13 +10,17 @@ class LanceDBConfig(DBConfig):
     uri: str
     api_key: SecretStr | None = None
     host_override: str | None = None
+    table_name: str | None = None
 
     def to_dict(self) -> dict:
-        return {
+        result = {
             "uri": self.uri,
             "api_key": self.api_key.get_secret_value() if self.api_key else None,
             "host_override": self.host_override,
         }
+        if self.table_name:
+            result["collection_name"] = self.table_name
+        return result
 
 
 class LanceDBIndexConfig(BaseModel, DBCaseConfig):
@@ -24,9 +28,9 @@ class LanceDBIndexConfig(BaseModel, DBCaseConfig):
     metric_type: MetricType = MetricType.L2
     num_partitions: int = 0
     num_sub_vectors: int = 0
-    nbits: int = 8  # Must be 4 or 8
-    sample_rate: int = 256
-    max_iterations: int = 50
+    # nbits: int = 8  # Must be 4 or 8
+    # sample_rate: int = 256
+    # max_iterations: int = 50
     nprobes: int = 0
 
     def index_param(self) -> dict:
@@ -40,11 +44,12 @@ class LanceDBIndexConfig(BaseModel, DBCaseConfig):
             raise ValueError(msg)
 
         # See https://lancedb.github.io/lancedb/python/python/#lancedb.table.Table.create_index
+        # should go with default
         params = {
             "metric": self.parse_metric(),
-            "num_bits": self.nbits,
-            "sample_rate": self.sample_rate,
-            "max_iterations": self.max_iterations,
+            # "num_bits": self.nbits,
+            # "sample_rate": self.sample_rate,
+            # "max_iterations": self.max_iterations,
         }
 
         if self.num_partitions > 0:
