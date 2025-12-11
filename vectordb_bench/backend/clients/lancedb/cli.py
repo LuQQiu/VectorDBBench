@@ -14,16 +14,6 @@ from ..api import IndexType
 
 
 class LanceDBTypedDict(CommonTypedDict):
-    drop_old: Annotated[
-        bool,
-        click.option(
-            "--drop-old/--skip-drop-old",
-            type=bool,
-            default=False,
-            help="Drop old table or skip",
-            show_default=True,
-        ),
-    ]
     uri: Annotated[
         str,
         click.option("--uri", type=str, help="URI connection string", required=True),
@@ -45,7 +35,6 @@ class LanceDBTypedDict(CommonTypedDict):
             help="Table name (if not provided, uses lancedb_bench_test with random suffix)",
         ),
     ]
-
 
 @cli.command()
 @click_parameter_decorators_from_typed_dict(LanceDBTypedDict)

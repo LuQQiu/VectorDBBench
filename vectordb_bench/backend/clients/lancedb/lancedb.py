@@ -54,12 +54,6 @@ class LanceDB(VectorDB):
 
         db = lancedb.connect(**connect_args)
 
-        if drop_old:
-            try:
-                db.drop_table(self.table_name)
-            except Exception as e:
-                log.warning(f"Failed to drop table {self.table_name}: {e}")
-
         try:
             db.open_table(self.table_name)
         except Exception:
