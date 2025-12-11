@@ -8,12 +8,14 @@ class LanceDBConfig(DBConfig):
 
     db_label: str
     uri: str
-    token: SecretStr | None = None
+    api_key: SecretStr | None = None
+    host_override: str | None = None
 
     def to_dict(self) -> dict:
         return {
             "uri": self.uri,
-            "token": self.token.get_secret_value() if self.token else None,
+            "api_key": self.api_key.get_secret_value() if self.api_key else None,
+            "host_override": self.host_override,
         }
 
 

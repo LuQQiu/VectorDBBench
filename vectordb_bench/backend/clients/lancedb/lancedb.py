@@ -32,12 +32,20 @@ class LanceDB(VectorDB):
         self.table_name = collection_name
         self.dim = dim
         self.uri = db_config["uri"]
+        self.api_key = db_config.get("api_key")
+        self.host_override = db_config.get("host_override")
         # avoid the search_param being called every time during the search process
         self.search_config = db_case_config.search_param()
 
         log.info(f"Search config: {self.search_config}")
 
-        db = lancedb.connect(self.uri)
+        connect_args = {"uri": self.uri}
+        if self.api_key:
+            connect_args["api_key"] = self.api_key
+        if self.host_override:
+            connect_args["host_override"] = self.host_override
+
+        db = lancedb.connect(**connect_args)
 
         if drop_old:
             try:
@@ -55,7 +63,13 @@ class LanceDB(VectorDB):
 
     @contextmanager
     def init(self):
-        self.db = lancedb.connect(self.uri)
+        connect_args = {"uri": self.uri}
+        if self.api_key:
+            connect_args["api_key"] = self.api_key
+        if self.host_override:
+            connect_args["host_override"] = self.host_override
+
+        self.db = lancedb.connect(**connect_args)
         self.table = self.db.open_table(self.table_name)
         yield
         self.db = None
