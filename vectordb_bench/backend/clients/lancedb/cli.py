@@ -55,10 +55,25 @@ def LanceDB(**parameters: Unpack[LanceDBTypedDict]):
     )
 
 
+class LanceDBAutoIndexTypedDict(CommonTypedDict, LanceDBTypedDict):
+    nprobes: Annotated[
+        int,
+        click.option(
+            "--nprobes", type=int, default=50, help="Number of IVF partitions to search (higher = better recall, slower)"
+        ),
+    ]
+    refine_factor: Annotated[
+        int,
+        click.option(
+            "--refine-factor", type=int, default=10, help="Re-rank top k*refine_factor results with exact distance"
+        ),
+    ]
+
+
 @cli.command()
-@click_parameter_decorators_from_typed_dict(LanceDBTypedDict)
-def LanceDBAutoIndex(**parameters: Unpack[LanceDBTypedDict]):
-    from .config import LanceDBConfig, _lancedb_case_config
+@click_parameter_decorators_from_typed_dict(LanceDBAutoIndexTypedDict)
+def LanceDBAutoIndex(**parameters: Unpack[LanceDBAutoIndexTypedDict]):
+    from .config import LanceDBAutoIndexConfig, LanceDBConfig
 
     run(
         db=DB.LanceDB,
@@ -69,7 +84,10 @@ def LanceDBAutoIndex(**parameters: Unpack[LanceDBTypedDict]):
             host_override=parameters.get("host_override"),
             table_name=parameters.get("table_name"),
         ),
-        db_case_config=_lancedb_case_config.get(IndexType.AUTOINDEX)(),
+        db_case_config=LanceDBAutoIndexConfig(
+            nprobes=parameters["nprobes"],
+            refine_factor=parameters["refine_factor"],
+        ),
         **parameters,
     )
 

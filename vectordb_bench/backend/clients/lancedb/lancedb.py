@@ -152,11 +152,13 @@ class LanceDB(VectorDB):
         if self.filter_expr:
             results = results.where(self.filter_expr, prefilter=True)
 
-        # Apply index-specific search parameters
-        if self.case_config.index == IndexType.IVFPQ and "nprobes" in self.search_config:
+        # Apply search parameters
+        if "nprobes" in self.search_config:
             results = results.nprobes(self.search_config["nprobes"])
-        elif self.case_config.index == IndexType.HNSW and "ef" in self.search_config:
+        if "ef" in self.search_config:
             results = results.ef(self.search_config["ef"])
+        if "refine_factor" in self.search_config:
+            results = results.refine_factor(self.search_config["refine_factor"])
 
         results = results.to_list()
         return [int(result[self._scalar_id_field]) for result in results]

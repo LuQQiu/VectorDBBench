@@ -84,9 +84,19 @@ class LanceDBNoIndexConfig(LanceDBIndexConfig):
 
 class LanceDBAutoIndexConfig(LanceDBIndexConfig):
     index: IndexType = IndexType.AUTOINDEX
+    nprobes: int = 50  # Default: search 50 IVF partitions for better recall
+    refine_factor: int = 10  # Default: re-rank top k*10 results with exact distance
 
     def index_param(self) -> dict:
         return {}
+
+    def search_param(self) -> dict:
+        params = {}
+        if self.nprobes > 0:
+            params["nprobes"] = self.nprobes
+        if self.refine_factor > 0:
+            params["refine_factor"] = self.refine_factor
+        return params
 
 
 class LanceDBHNSWIndexConfig(LanceDBIndexConfig):
