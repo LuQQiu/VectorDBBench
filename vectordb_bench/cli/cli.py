@@ -455,6 +455,16 @@ class CommonTypedDict(TypedDict):
             show_default=True,
         ),
     ]
+    streaming: Annotated[
+        bool,
+        click.option(
+            "--streaming/--no-streaming",
+            type=bool,
+            default=False,
+            help="Stream data: download one file at a time and delete after processing (for large datasets)",
+            show_default=True,
+        ),
+    ]
 
 
 class HNSWBaseTypedDict(TypedDict):
@@ -643,6 +653,7 @@ def run(
             parameters["search_serial"],
             parameters["search_concurrent"],
         ),
+        streaming=parameters.get("streaming", False),
     )
     task_label = parameters["task_label"]
 

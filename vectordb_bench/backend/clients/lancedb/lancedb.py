@@ -73,8 +73,11 @@ class LanceDB(VectorDB):
 
         db = lancedb.connect(**connect_args)
 
+        self._existing_row_count = 0
         try:
-            db.open_table(self.table_name)
+            table = db.open_table(self.table_name)
+            self._existing_row_count = table.count_rows()
+            log.info(f"Existing table found with {self._existing_row_count} rows")
         except Exception:
             fields = [
                 pa.field(self._scalar_id_field, pa.int64()),
@@ -84,6 +87,11 @@ class LanceDB(VectorDB):
                 fields.append(pa.field(self._scalar_label_field, pa.string()))
             schema = pa.schema(fields)
             db.create_table(self.table_name, schema=schema, mode="overwrite")
+            log.info(f"Created new table: {self.table_name}")
+
+    def get_existing_row_count(self) -> int:
+        """Return the number of rows already in the table (for resume support)"""
+        return self._existing_row_count
 
     @contextmanager
     def init(self):

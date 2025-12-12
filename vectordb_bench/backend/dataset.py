@@ -306,6 +306,9 @@ class DatasetManager(BaseModel):
     scalar_labels: pl.DataFrame | None = None
     train_files: list[str] = []
     reader: DatasetReader | None = None
+    start_offset: int = 0  # Skip first N rows (for resume after failure)
+    streaming: bool = False  # If True, download one file at a time and delete after processing
+    _dataset_source: DatasetSource | None = None
 
     def __eq__(self, obj: any):
         if isinstance(obj, DatasetManager):
@@ -317,6 +320,12 @@ class DatasetManager(BaseModel):
 
     def set_reader(self, reader: DatasetReader):
         self.reader = reader
+
+    def set_start_offset(self, offset: int):
+        self.start_offset = offset
+
+    def set_streaming(self, streaming: bool):
+        self.streaming = streaming
 
     @property
     def data_dir(self) -> pathlib.Path:
@@ -334,7 +343,12 @@ class DatasetManager(BaseModel):
         )
 
     def __iter__(self):
-        return DataSetIterator(self)
+        return DataSetIterator(
+            self,
+            start_offset=self.start_offset,
+            streaming=self.streaming,
+            dataset_source=self._dataset_source,
+        )
 
     # TODO passing use_shuffle from outside
     def prepare(
@@ -356,15 +370,19 @@ class DatasetManager(BaseModel):
             bool: whether the dataset is successfully prepared
 
         """
+        # Store dataset source for streaming mode
+        self._dataset_source = source
         self.train_files = self.data.train_files
         gt_file, test_file = None, None
         if self.data.with_gt:
             gt_file, test_file = filters.groundtruth_file, self.data.test_file
 
         if self.data.with_remote_resource:
-            # Only download train files if not skipping (for load stage)
-            if skip_train_files:
+            # Skip downloading train files if streaming mode or skip_train_files
+            if skip_train_files or self.streaming:
                 download_files = []
+                if self.streaming:
+                    log.info("Streaming mode enabled - train files will be downloaded one at a time")
             else:
                 download_files = [file for file in self.train_files]
             download_files.extend([gt_file, test_file])
@@ -405,17 +423,64 @@ class DatasetManager(BaseModel):
 
 
 class DataSetIterator:
-    def __init__(self, dataset: DatasetManager):
+    def __init__(
+        self,
+        dataset: DatasetManager,
+        start_offset: int = 0,
+        streaming: bool = False,
+        dataset_source: DatasetSource | None = None,
+    ):
         self._ds = dataset
         self._idx = 0  # file number
         self._cur = None
         self._sub_idx = [0 for i in range(len(self._ds.train_files))]  # iter num for each file
+        self._start_offset = start_offset
+        self._rows_skipped = 0
+        self._skipping_done = start_offset == 0
+        self._streaming = streaming
+        self._dataset_source = dataset_source
+        self._current_file_path: pathlib.Path | None = None  # Track current file for cleanup
 
     def __iter__(self):
         return self
 
+    def _download_file(self, file_name: str) -> pathlib.Path:
+        """Download a single file from remote source."""
+        local_file = pathlib.Path(self._ds.data_dir, file_name)
+        if local_file.exists():
+            log.info(f"File already exists locally: {local_file}")
+            return local_file
+
+        if self._dataset_source is None:
+            msg = "Cannot download file: dataset_source is not set"
+            raise ValueError(msg)
+
+        log.info(f"Streaming mode: downloading {file_name}")
+        reader = self._dataset_source.reader()
+        reader.read(
+            dataset=self._ds.data.dir_name.lower(),
+            files=[file_name],
+            local_ds_root=self._ds.data_dir,
+        )
+        return local_file
+
+    def _delete_file(self, file_path: pathlib.Path):
+        """Delete a local file after processing."""
+        if file_path and file_path.exists():
+            try:
+                file_path.unlink()
+                log.info(f"Streaming mode: deleted processed file {file_path.name}")
+            except Exception as e:
+                log.warning(f"Failed to delete file {file_path}: {e}")
+
     def _get_iter(self, file_name: str):
         p = pathlib.Path(self._ds.data_dir, file_name)
+
+        # In streaming mode, download the file first
+        if self._streaming:
+            p = self._download_file(file_name)
+            self._current_file_path = p
+
         log.info(f"Get iterator for {p.name}")
         if not p.exists():
             msg = f"No such file: {p}"
@@ -423,23 +488,53 @@ class DataSetIterator:
             raise IndexError(msg)
         return ParquetFile(p, memory_map=True, pre_buffer=True).iter_batches(config.NUM_PER_BATCH)
 
+    def _cleanup_current_file(self):
+        """Clean up the current file in streaming mode."""
+        if self._streaming and self._current_file_path:
+            self._delete_file(self._current_file_path)
+            self._current_file_path = None
+
     def __next__(self) -> pd.DataFrame:
         """return the data in the next file of the training list"""
-        if self._idx < len(self._ds.train_files):
+        while self._idx < len(self._ds.train_files):
             if self._cur is None:
                 file_name = self._ds.train_files[self._idx]
                 self._cur = self._get_iter(file_name)
 
             try:
-                return next(self._cur).to_pandas()
+                batch = next(self._cur).to_pandas()
+
+                # Skip batches until we reach start_offset
+                if not self._skipping_done:
+                    batch_size = len(batch)
+                    if self._rows_skipped + batch_size <= self._start_offset:
+                        self._rows_skipped += batch_size
+                        log.debug(f"Skipping batch, total skipped: {self._rows_skipped}/{self._start_offset}")
+                        continue
+                    else:
+                        # Partial skip - slice the batch
+                        rows_to_skip = self._start_offset - self._rows_skipped
+                        if rows_to_skip > 0:
+                            batch = batch.iloc[rows_to_skip:]
+                            log.info(f"Resuming from offset {self._start_offset}, skipped {rows_to_skip} rows from current batch")
+                        self._skipping_done = True
+
+                return batch
             except StopIteration:
+                # Clean up the current file before moving to the next
+                self._cleanup_current_file()
+
                 if self._idx == len(self._ds.train_files) - 1:
                     raise StopIteration from None
 
                 self._idx += 1
                 file_name = self._ds.train_files[self._idx]
                 self._cur = self._get_iter(file_name)
-                return next(self._cur).to_pandas()
+                # Continue to next iteration to get batch from new file
+                continue
+
+        # Final cleanup
+        self._cleanup_current_file()
         raise StopIteration
 
 

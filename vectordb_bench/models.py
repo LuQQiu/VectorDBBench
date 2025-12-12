@@ -213,6 +213,7 @@ class TaskConfig(BaseModel):
     db_case_config: DBCaseConfig
     case_config: CaseConfig
     stages: list[TaskStage] = ALL_TASK_STAGES
+    streaming: bool = False  # Download one file at a time and delete after processing
 
     @property
     def db_name(self):

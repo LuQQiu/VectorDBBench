@@ -134,6 +134,19 @@ class CaseRunner(BaseModel):
     def _pre_run(self, drop_old: bool = True):
         try:
             self.init_db(drop_old)
+
+            # Auto-detect existing rows for resume support (when not dropping old)
+            if not drop_old and hasattr(self.db, "get_existing_row_count"):
+                existing_rows = self.db.get_existing_row_count()
+                if existing_rows > 0:
+                    log.info(f"Resuming from existing {existing_rows} rows (auto-detected)")
+                    self.ca.dataset.set_start_offset(existing_rows)
+
+            # Set streaming mode if configured (download one file at a time, delete after processing)
+            if self.config.streaming:
+                log.info("Streaming mode enabled for data loading")
+                self.ca.dataset.set_streaming(True)
+
             # Skip downloading train files if LOAD stage is not in stages (search-only run)
             skip_train_files = TaskStage.LOAD not in self.config.stages
             self.ca.dataset.prepare(self.dataset_source, filters=self.ca.filters, skip_train_files=skip_train_files)
