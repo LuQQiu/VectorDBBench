@@ -134,7 +134,9 @@ class CaseRunner(BaseModel):
     def _pre_run(self, drop_old: bool = True):
         try:
             self.init_db(drop_old)
-            self.ca.dataset.prepare(self.dataset_source, filters=self.ca.filters)
+            # Skip downloading train files if LOAD stage is not in stages (search-only run)
+            skip_train_files = TaskStage.LOAD not in self.config.stages
+            self.ca.dataset.prepare(self.dataset_source, filters=self.ca.filters, skip_train_files=skip_train_files)
         except ModuleNotFoundError as e:
             log.warning(f"pre run case error: please install client for db: {self.config.db}, error={e}")
             raise e from None
