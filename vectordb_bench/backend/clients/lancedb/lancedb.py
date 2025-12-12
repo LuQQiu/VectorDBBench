@@ -6,6 +6,8 @@ import lancedb
 import pyarrow as pa
 from lancedb.pydantic import LanceModel
 
+from vectordb_bench.backend.filter import Filter, FilterOp
+
 from ..api import IndexType, VectorDB
 from .config import LanceDBConfig, LanceDBIndexConfig
 
@@ -18,6 +20,12 @@ class VectorModel(LanceModel):
 
 
 class LanceDB(VectorDB):
+    supported_filter_types: list[FilterOp] = [
+        FilterOp.NonFilter,
+        FilterOp.NumGE,
+        FilterOp.StrEqual,
+    ]
+
     def __init__(
         self,
         dim: int,
@@ -25,11 +33,13 @@ class LanceDB(VectorDB):
         db_case_config: LanceDBIndexConfig,
         collection_name: str | None = None,
         drop_old: bool = False,
+        with_scalar_labels: bool = False,
         **kwargs,
     ):
         self.name = "LanceDB"
         self.db_config = db_config
         self.case_config = db_case_config
+        self.with_scalar_labels = with_scalar_labels
         # Use provided table name, or generate default with random suffix
         if collection_name:
             self.table_name = collection_name
@@ -43,8 +53,17 @@ class LanceDB(VectorDB):
         # avoid the search_param being called every time during the search process
         self.search_config = db_case_config.search_param()
 
+        # Field names
+        self._scalar_id_field = "id"
+        self._scalar_label_field = "label"
+        self._vector_field = "vector"
+
+        # Filter expression (set by prepare_filter)
+        self.filter_expr = None
+
         log.info(f"Table name: {self.table_name}")
         log.info(f"Search config: {self.search_config}")
+        log.info(f"With scalar labels: {self.with_scalar_labels}")
 
         connect_args = {"uri": self.uri}
         if self.api_key:
@@ -57,9 +76,13 @@ class LanceDB(VectorDB):
         try:
             db.open_table(self.table_name)
         except Exception:
-            schema = pa.schema(
-                [pa.field("id", pa.int64()), pa.field("vector", pa.list_(pa.float32(), list_size=self.dim))]
-            )
+            fields = [
+                pa.field(self._scalar_id_field, pa.int64()),
+                pa.field(self._vector_field, pa.list_(pa.float32(), list_size=self.dim)),
+            ]
+            if self.with_scalar_labels:
+                fields.append(pa.field(self._scalar_label_field, pa.string()))
+            schema = pa.schema(fields)
             db.create_table(self.table_name, schema=schema, mode="overwrite")
 
     @contextmanager
@@ -80,46 +103,75 @@ class LanceDB(VectorDB):
         self,
         embeddings: list[list[float]],
         metadata: list[int],
+        labels_data: list[str] | None = None,
         **kwargs,
     ) -> tuple[int, Exception | None]:
         try:
-            data = [{"id": meta, "vector": emb} for meta, emb in zip(metadata, embeddings, strict=False)]
+            if self.with_scalar_labels and labels_data:
+                data = [
+                    {
+                        self._scalar_id_field: meta,
+                        self._vector_field: emb,
+                        self._scalar_label_field: label,
+                    }
+                    for meta, emb, label in zip(metadata, embeddings, labels_data, strict=False)
+                ]
+            else:
+                data = [
+                    {self._scalar_id_field: meta, self._vector_field: emb}
+                    for meta, emb in zip(metadata, embeddings, strict=False)
+                ]
             self.table.add(data)
             return len(metadata), None
         except Exception as e:
             log.warning(f"Failed to insert data into LanceDB table ({self.table_name}), error: {e}")
             return 0, e
 
+    def prepare_filter(self, filters: Filter):
+        """Prepare filter expression before search."""
+        if filters.type == FilterOp.NonFilter:
+            self.filter_expr = None
+        elif filters.type == FilterOp.NumGE:
+            self.filter_expr = f"{self._scalar_id_field} >= {filters.int_value}"
+        elif filters.type == FilterOp.StrEqual:
+            self.filter_expr = f"{self._scalar_label_field} = '{filters.label_value}'"
+        else:
+            msg = f"Not supported Filter for LanceDB - {filters}"
+            raise ValueError(msg)
+
     def search_embedding(
         self,
         query: list[float],
         k: int = 100,
-        filters: dict | None = None,
+        timeout: int | None = None,
     ) -> list[int]:
-        if filters:
-            results = self.table.search(query).select(["id"]).where(f"id >= {filters['id']}", prefilter=True).limit(k)
-            if self.case_config.index == IndexType.IVFPQ and "nprobes" in self.search_config:
-                results = results.nprobes(self.search_config["nprobes"]).to_list()
-            elif self.case_config.index == IndexType.HNSW and "ef" in self.search_config:
-                results = results.ef(self.search_config["ef"]).to_list()
-            else:
-                results = results.to_list()
-        else:
-            results = self.table.search(query).select(["id"]).limit(k)
-            if self.case_config.index == IndexType.IVFPQ and "nprobes" in self.search_config:
-                results = results.nprobes(self.search_config["nprobes"]).to_list()
-            elif self.case_config.index == IndexType.HNSW and "ef" in self.search_config:
-                results = results.ef(self.search_config["ef"]).to_list()
-            else:
-                results = results.to_list()
+        """Perform a search on a query embedding and return results."""
+        results = self.table.search(query).select([self._scalar_id_field]).limit(k)
 
-        return [int(result["id"]) for result in results]
+        # Apply filter if set
+        if self.filter_expr:
+            results = results.where(self.filter_expr, prefilter=True)
+
+        # Apply index-specific search parameters
+        if self.case_config.index == IndexType.IVFPQ and "nprobes" in self.search_config:
+            results = results.nprobes(self.search_config["nprobes"])
+        elif self.case_config.index == IndexType.HNSW and "ef" in self.search_config:
+            results = results.ef(self.search_config["ef"])
+
+        results = results.to_list()
+        return [int(result[self._scalar_id_field]) for result in results]
 
     def optimize(self, data_size: int | None = None):
         if self.table:
             # Create BTREE index on id column for filter performance
             log.info(f"Creating BTREE index on id column for table ({self.table_name})")
-            self.table.create_index("id", index_type="BTREE")
+            self.table.create_scalar_index(self._scalar_id_field)  # BTree is default
+
+            # Create BITMAP index on label column for string equality filter
+            if self.with_scalar_labels:
+                log.info(f"Creating BITMAP index on label column for table ({self.table_name})")
+                self.table.create_scalar_index(self._scalar_label_field, index_type="BITMAP")
+
         if self.table and hasattr(self, "case_config") and self.case_config.index != IndexType.NONE:
             log.info(f"Creating index for LanceDB table ({self.table_name})")
             log.info(f"Index parameters: {self.case_config.index_param()}")
