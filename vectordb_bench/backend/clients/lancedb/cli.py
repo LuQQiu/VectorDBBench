@@ -59,13 +59,13 @@ class LanceDBAutoIndexTypedDict(CommonTypedDict, LanceDBTypedDict):
     nprobes: Annotated[
         int,
         click.option(
-            "--nprobes", type=int, default=50, help="Number of IVF partitions to search (higher = better recall, slower)"
+            "--nprobes", type=int, default=20, help="Number of IVF partitions to search (higher = better recall, slower)"
         ),
     ]
     refine_factor: Annotated[
         int,
         click.option(
-            "--refine-factor", type=int, default=10, help="Re-rank top k*refine_factor results with exact distance"
+            "--refine-factor", type=int, default=3, help="Re-rank top k*refine_factor results with exact distance"
         ),
     ]
 
