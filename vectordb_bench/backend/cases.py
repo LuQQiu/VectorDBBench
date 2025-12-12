@@ -109,10 +109,11 @@ class Case(BaseModel):
 
     @property
     def with_scalar_labels(self) -> bool:
-        return self.filters.type == FilterOp.StrEqual
+        # Always ingest labels if the dataset supports them (enables optional filtering at search time)
+        return self.dataset.data.with_scalar_labels
 
     def check_scalar_labels(self) -> None:
-        if self.with_scalar_labels and not self.dataset.data.with_scalar_labels:
+        if self.filters.type == FilterOp.StrEqual and not self.dataset.data.with_scalar_labels:
             msg = f"Case init failed: no scalar_labels data in current dataset ({self.dataset.data.full_name})"
             raise ValueError(msg)
 
