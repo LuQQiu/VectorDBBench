@@ -308,7 +308,7 @@ class DatasetManager(BaseModel):
     reader: DatasetReader | None = None
     start_offset: int = 0  # Skip first N rows (for resume after failure)
     streaming: bool = False  # If True, download one file at a time and delete after processing
-    _dataset_source: DatasetSource | None = None
+    _dataset_source: DatasetSource | None = PrivateAttr(default=None)
 
     def __eq__(self, obj: any):
         if isinstance(obj, DatasetManager):
