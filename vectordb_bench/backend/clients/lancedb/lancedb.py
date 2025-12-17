@@ -187,5 +187,6 @@ class LanceDB(VectorDB):
             log.info(f"Index parameters: {self.case_config.index_param()}")
             self.table.create_index(**self.case_config.index_param())
             # Better recall with IVF_PQ (though still bad) but breaks HNSW: https://github.com/lancedb/lancedb/issues/2369
-            if self.case_config.index in (IndexType.IVFPQ, IndexType.AUTOINDEX):
+            # Note: Do NOT call optimize() for AUTOINDEX since it now uses IVF_HNSW_SQ
+            if self.case_config.index == IndexType.IVFPQ:
                 self.table.optimize()
