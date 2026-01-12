@@ -135,10 +135,34 @@ class LAION(BaseDataset):
     dim: int = 768
     metric_type: MetricType = MetricType.L2
     use_shuffled: bool = False
-    with_gt: bool = True
+    with_gt: bool = False  # No filtered ground truth files available for LAION 100M
     _size_label: dict = {
         100_000_000: SizeLabel(100_000_000, "LARGE", 100),
     }
+    with_scalar_labels: bool = True
+    scalar_int_rates: list[float] = [
+        0.001,
+        0.002,
+        0.005,
+        0.01,
+        0.02,
+        0.05,
+        0.1,
+        0.2,
+        0.3,
+        0.4,
+        0.5,
+        0.6,
+        0.7,
+        0.8,
+        0.9,
+        0.95,
+        0.98,
+        0.99,
+        0.995,
+        0.998,
+        0.999,
+    ]
 
 
 class GIST(BaseDataset):
@@ -571,6 +595,7 @@ class DatasetWithSizeType(Enum):
     OpenAISmall = "Small OpenAI (1536dim, 50K)"
     OpenAIMedium = "Medium OpenAI (1536dim, 500K)"
     OpenAILarge = "Large OpenAI (1536dim, 5M)"
+    LAIONLarge = "Large LAION (768dim, 100M)"
 
     def get_manager(self) -> DatasetManager:
         if self not in DatasetWithSizeMap:
@@ -579,6 +604,8 @@ class DatasetWithSizeType(Enum):
         return DatasetWithSizeMap.get(self)
 
     def get_load_timeout(self) -> float:
+        if "100m" in self.value.lower():
+            return config.LOAD_TIMEOUT_768D_100M
         if "small" in self.value.lower():
             return config.LOAD_TIMEOUT_768D_100K
         if "medium" in self.value.lower():
@@ -589,6 +616,8 @@ class DatasetWithSizeType(Enum):
         raise KeyError(msg)
 
     def get_optimize_timeout(self) -> float:
+        if "100m" in self.value.lower():
+            return config.OPTIMIZE_TIMEOUT_768D_100M
         if "small" in self.value.lower():
             return config.OPTIMIZE_TIMEOUT_768D_100K
         if "medium" in self.value.lower():
@@ -607,4 +636,5 @@ DatasetWithSizeMap = {
     DatasetWithSizeType.OpenAISmall: Dataset.OPENAI.manager(50_000),
     DatasetWithSizeType.OpenAIMedium: Dataset.OPENAI.manager(500_000),
     DatasetWithSizeType.OpenAILarge: Dataset.OPENAI.manager(5_000_000),
+    DatasetWithSizeType.LAIONLarge: Dataset.LAION.manager(100_000_000),
 }
