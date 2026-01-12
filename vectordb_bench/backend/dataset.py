@@ -140,6 +140,7 @@ class LAION(BaseDataset):
         100_000_000: SizeLabel(100_000_000, "LARGE", 100),
     }
     with_scalar_labels: bool = True
+    scalar_labels_file_separated: bool = False  # No separate scalar_labels.parquet for LAION 100M
     scalar_int_rates: list[float] = [
         0.001,
         0.002,
